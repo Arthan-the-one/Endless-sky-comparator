@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Endless Sky Comparator</title>
+	<style>
+table, th, td {
+	border: 1px solid black;
+}
+th {
+	cursor: pointer;
+}
+	</style>
+	<script name="globals">
+var categories = []
+//assumptions
+//~Large Heat Shunt
+const coolingCost = 0.44
+//~Triple Plasma Core
+const energyCost = 5.45
+	</script>
+	<script name="keys">
+var allKeys = new Set()
+
+var keepKeys = new Set([
+//Basic
+"outfit",
+"category",
+"cost",
+"mass",
+
+//Common Requirements
+"outfit space",
+"weapon capacity",
+"engine capacity",
+"gun ports",
+"turret mounts",
+"cargo space",
+
+//Energy
+"energy consumption",
+"energy capacity",
+"energy generation",
+
+//Cooling
+"cooling",
+"heat capacity",
+"active cooling",
+"cooling energy",
+
+//Heat
+"heat generation",
+"heat dissipation",
+
+//Shield
+"shield generation",
+"shield energy",
+"shield heat",
+"shield energy multiplier",
+"shield generation multiplier",
+"delayed shield generation",
+"depleted shield delay",
+
+//Hull
+"hull repair rate",
+"hull energy",
+"hull heat",
+"hull repair multiplier",
+
+//Propulsion
+"thrust",
+"thrusting energy",
+"thrusting heat",
+"turn",
+"turning energy",
+"turning heat",
+"reverse thrust",
+"reverse thrusting energy",
+"reverse thrusting heat",
+
+//Fuel
+"fuel capacity",
+"fuel protection",
+"fuel generation",
+"ramscoop",
+])
+
+var removeKeys = new Set([
+//Meta
+"unique",
+"illegal",
+"map",
+"installable",
+"ammo",
+
+//Visual
+"description",
+"plural",
+"thumbnail",
+"effect",
+"flare sprite",
+"flare sound",
+"reverse flare sprite",
+"reverse flare sound",
+"steering flare sprite",
+"steering flare sound",
+"flotsam sprite",
+"flotsam chance",
+
+//ammo
+"teciimach canister capacity",
+"finisher capacity",
+"swarm capacity",
+"railgun slug capacity",
+"tracker capacity",
+"star tail capacity",
+"emp torpedo capacity",
+"piercer capacity",
+"minelayer capacity",
+"firelight missile capacity",
+"firestorm torpedo capacity",
+"thunderhead capacity",
+"meteor capacity",
+"sidewinder capacity",
+"javelin capacity",
+"torpedo capacity",
+"typhoon capacity",
+"rocket capacity",
+"gatling round capacity"
+])
+
+var otherKeys = new Set([
+//misc
+"required crew",
+"solar collection",
+"solar heat",
+"capture attack",
+"capture defense",
+"unplunderable",
+"integrated control systems",
+"shield fuel",
+"bunks",
+"automaton",
+"spinal mount",
+"cloak",
+"cloaking energy",
+"cloaking fuel",
+"cooling inefficiency",
+"inertia reduction",
+"operating costs",
+
+//Travel
+"jump speed",
+"jump fuel",
+
+//Weird component stuff
+"relay upgrades",
+"nanite upgrades",
+"reactor upgrades",
+"solar cell",
+
+//Illegal?
+"scan brightness",
+"scan interference",
+
+//Meta
+"hyperdrive",
+"scram drive",
+"jump drive",
+"display name",
+"quantum keystone",
+"atmosphere scan",
+
+//Misc. defense
+"ion resistance",
+"scramble resistance",
+"slowing resistance",
+"force protection",
+"optical jamming",
+"radar jamming",
+
+//I have no clue
+"drill port",
+"drill lock",
+"drill spar",
+
+//Scan
+"asteroid scan power",
+"outfit scan power",
+"outfit scan efficiency",
+"cargo scan power",
+"cargo scan efficiency",
+"tactical scan power",
+
+//Afterburner
+"afterburner thrust",
+"afterburner energy",
+"afterburner heat",
+"afterburner fuel",
+"afterburner effect",
+])
+	</script>
+	<script name="utility">
+const getCellValue = (tr, idx) => tr.children[idx].innerText || tr.children[idx].textContent;
+
+const comparer = (idx, asc) => (a, b) => (
+		// both numbers -> subtract, otherwise localeCompare
+		(v1, v2) => v1 !== '' && v2 !== '' && !isNaN(v1) && !isNaN(v2) ? v1 - v2 : v1.toString().localeCompare(v2)
+	)(getCellValue(asc ? a : b, idx), getCellValue(asc ? b : a, idx))
+
+function activateSorting() {
+	document.querySelectorAll('th').forEach(th => th.addEventListener('click', (() => {
+		const tbody = th.closest("table").getElementsByTagName("tbody")[0]
+		const sortColumn = Array.from(th.parentElement.children).indexOf(th)
+		const rowsToSort = tbody.querySelectorAll('tr')
+		Array.from(rowsToSort)
+			.sort(comparer(sortColumn, this.asc = !this.asc))
+			//appendchild moves references
+			.forEach(tr => tbody.appendChild(tr) )
+	})))
+}
+	</script>
+	<script name="visual">
+var categoryButtons
+
+function showCategories() {
+	categoryButtons = document.getElementById("categoryButtons")
+	for (categoryName in categories) {
+		createCategoryButton(categoryName)
+	}
+}
+
+const getNumber = (outfit, property) => parseFloat(outfit.get(property) || 0)
+
+function showCategory(event) {
+	const categoryName = event.target.textContent
+	const filter = document.getElementById("filter").value
+	const category = categories[categoryName]
+	const properties = new Set()
+
+	const allCooling = (outfit) => getNumber(outfit, "cooling") + getNumber(outfit, "active cooling") + getNumber(outfit, "heat capacity")
+	const baseEnergy = (outfit) => getNumber(outfit, "energy consumption") + getNumber(outfit, "cooling energy")
+	/* "interface": {name, calc, filter} */
+	var additionalProperty = {name: "none", calc: () => {return 0}, filter: () => {return true}}
+	if (filter == "cooling") {
+		additionalProperty = {name: "cooling efficiency", calc: (outfit) => {
+			return allCooling(outfit) / (
+				baseEnergy(outfit) * energyCost
+				- outfit.get("outfit space"))
+		}, filter: (outfit) => {
+			return outfit.has("cooling") || outfit.has("active cooling") || outfit.has("heat capacity")
+		}}
+	}
+	if (filter == "energy") {
+		additionalProperty = {name: "energy efficiency", calc: (outfit) => {
+			return getNumber(outfit, "energy generation") / (
+				(getNumber(outfit, "heat generation") - allCooling(outfit)) * coolingCost
+				+ baseEnergy(outfit) * energyCost
+				- outfit.get("outfit space"))
+		}, filter: (outfit) => {
+			return outfit.has("energy generation")
+		}}
+	}
+	if (filter == "thrust") {
+		additionalProperty = {name: "thrust efficiency", calc: (outfit) => {
+			return outfit.get("thrust") / (
+				(baseEnergy(outfit) + getNumber(outfit, "thrusting energy")) * energyCost
+				+ (getNumber(outfit, "heat generation") + getNumber(outfit, "thrusting heat") - allCooling(outfit)) * coolingCost
+				- outfit.get("outfit space"))
+		}, filter: (outfit) => {
+			return outfit.has("thrust")
+		}}
+	}
+	if (filter == "turn") {
+		additionalProperty = {name: "turn efficiency", calc: (outfit) => {
+			return outfit.get("turn") / (
+				(baseEnergy(outfit) + getNumber(outfit, "turning energy")) * energyCost
+				+ (getNumber(outfit, "heat generation") + getNumber(outfit, "turning heat") - allCooling(outfit)) * coolingCost
+				- outfit.get("outfit space"))
+		}, filter: (outfit) => {
+			return outfit.has("turn")
+		}}
+	}
+
+	const filteredCategory = category.filter(additionalProperty.filter)
+
+	filteredCategory.forEach(outfit => {
+		[...outfit.keys()].forEach(key => {
+			properties.add(key)
+		})
+	})
+
+	if (categoryName == "Power") {
+		const limiter = category.find(x=>x.get("outfit")=="Reactor Limiter")
+		const overclocker = category.find(x=>x.get("outfit")=="Reactor Overclocker")
+		const dr2 = structuredClone(category.find(x=>x.get("outfit")=="Dark Reactor"))
+		const dr3 = structuredClone(dr2)
+
+		properties.forEach(key => {
+			const drVal = getNumber(dr2, key)
+			const limiterVal = getNumber(limiter, key)
+			const overclockerVal = getNumber(overclocker, key)
+
+			if (drVal != 0 || limiterVal != 0) {
+				dr2.set(key, parseFloat(drVal) + parseFloat(limiterVal) * 15)
+			}
+
+			if (drVal != 0 || overclockerVal != 0) {
+				dr3.set(key, parseFloat(drVal) + parseFloat(overclockerVal) * 10)
+			}
+		})
+		dr2.set("outfit", "Dark Reactor (limited edition)")
+		dr3.set("outfit", "Dark Reactor (turbo edition)")
+		filteredCategory.push(dr2)
+		filteredCategory.push(dr3)
+	}
+
+	const template = document.getElementById("category-template").content.children[0]
+	const categoryElement = document.importNode(template, true)
+	const categoryContent = document.getElementById("categoryContent")
+	categoryContent.innerHTML = ""
+	categoryContent.appendChild(categoryElement)
+
+	const thead = categoryElement.getElementsByTagName("thead")[0].getElementsByTagName("tr")[0]
+	if (additionalProperty.name != "none") {
+		const headerCell = document.createElement("th")
+		headerCell.textContent = additionalProperty.name
+		thead.appendChild(headerCell)
+	}
+	properties.forEach(property => {
+		const headerCell = document.createElement("th")
+		headerCell.textContent = property
+		thead.appendChild(headerCell)
+	})
+
+	const tbody = categoryElement.getElementsByTagName("tbody")[0]
+	filteredCategory.forEach(outfit => {
+		const tableRow = document.createElement("tr")
+		tbody.appendChild(tableRow)
+		if (additionalProperty.name != "none") {
+			const bodyCell = document.createElement("td")
+			bodyCell.textContent = ("" + additionalProperty.calc(outfit)).slice(0,6)
+			tableRow.appendChild(bodyCell)
+		}
+		properties.forEach(property => {
+			const bodyCell = document.createElement("td")
+			bodyCell.textContent = outfit.get(property)
+			tableRow.appendChild(bodyCell)
+		})
+	})
+	activateSorting()
+}
+
+function createCategoryButton(categoryName) {
+	const template = document.getElementById("category-button-template").content.children[0]
+	const categoryButtonElement = document.importNode(template, true)
+
+	categoryButtonElement.textContent = categoryName
+
+	categoryButtons.appendChild(categoryButtonElement)
+}
+	</script>
+	<script name="parsing">
+async function openFiles(event) {
+	var files = event.target.files
+	var outfits = []
+
+	for (var i = 0; i < files.length; ++i) {
+		var file = files[i]
+		var readFile = await file.text()
+		var cleanedFile = cleanFile(readFile)
+		var blobs = getBlobs(cleanedFile)
+		var parsedOutfits = blobs.map(blob => parseBlob(blob))
+		var filteredOutfits = parsedOutfits.filter(blob => blob != null)
+
+		outfits = outfits.concat(filteredOutfits)
+	}
+	var reducedOutfits = outfits.map(outfit => reduceData(outfit))
+	categories = Object.groupBy(reducedOutfits, outfit => outfit.get("category"))
+	//show categories
+	showCategories()
+}
+
+function cleanFile(file) {
+	var cleaned = file.replaceAll(/#.*\n/g,"")
+		.replaceAll(/\t\t+.*\n/g,"")
+		.replace(/\n*/,"")
+	return cleaned
+}
+
+function getBlobs(file) {
+	var blobs = file.replaceAll(/\n+(\w)/g,"§split§$1")
+		.split("§split§")
+	return blobs
+}
+
+function parseBlob(blob) {
+	var lines = blob.split("\n\t")
+	var parsedBlob = new Map()
+
+	if (lines.length < 3) {
+		//weapon-only "outfits", like submunitions/some projectiles
+		return null
+	} else {
+		for (var i = 0; i < lines.length; ++i) {
+			var matches = lines[i].match(/\t*(\"([^\"]+)\"|([^\"\`]+)) (\`([^\`]+)\`|\"([^\"]+)\"|([^\"\`]+))/)
+			if (matches == null) {/*this is the weapon header*/}
+			else {
+				var key = matches[2] || matches[3]
+				allKeys.add(key)
+				//filter effects/non-outfits
+				if (i == 0 && key != "outfit") {
+					return null
+				} else {
+					var value = matches[5] || matches[6] || matches[7]
+					parsedBlob.set(key, value)
+				}
+			}
+		}
+		return parsedBlob
+	}
+}
+
+function reduceData(outfit) {
+	var keys = [...outfit.keys()]
+	keys.forEach(key => {
+//		if (!keepKeys.has(key)) {
+		if (removeKeys.has(key)) {
+			outfit.delete(key)
+		}
+	})
+	return outfit
+}
+	</script>
+</head>
+<body>
+<template id="category-button-template">
+	<button class="category-button" onclick="showCategory(event)"></button>
+</template>
+
+<template id="category-template">
+	<table class="category">
+		<thead><tr></tr></thead>
+		<tbody></tbody>
+	</table>
+</template>
+
+<input type='file' accept='text/plain' onchange='openFiles(event)' multiple>
+<select id="filter">
+	<option value="none">Select Filter</option>
+	<option value="thrust">thrust</option>
+	<option value="turn">turn</option>
+	<option value="cooling">cooling</option>
+	<option value="energy">energy</option>
+</select >
+
+<div id="categoryButtons"></div>
+
+<div id="categoryContent"></div>
+</body>
+
