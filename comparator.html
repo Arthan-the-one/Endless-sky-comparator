@@ -9,14 +9,55 @@ table, th, td {
 th {
 	cursor: pointer;
 }
+td {
+	text-align: right;
+}
+.interactive {
+	cursor: pointer;
+	text-decoration: underline #000 dotted;
+}
 	</style>
 	<script name="globals">
 var categories = []
+const floatFixingMultiplier = 1000
 //assumptions
+//some values are per-second, some per-frame (*60/s) - heat cap is "per second"
 //~Large Heat Shunt
 const coolingCost = 0.44
 //~Triple Plasma Core
-const energyCost = 5.45
+const energyCost = 5.432
+//~Large Reactor Module
+//const energyCost = 4.89
+
+//known values (midgame) also used for normalization, set to 1 to get raw values fo combined calcs:
+//small battery module (size easy to handle)
+const batteryEfficiency = 900
+//Triple Plasma Core (best midgame, easy to get)
+const energyEfficiency = 0.1841
+//Double Plasma Core (easy to get, size tolerable)
+//const energyEfficiency = 0.1764
+//large heat Shunt (best - if cooling is needed, enough is needed to use this)
+const coolingEfficiency = -2.25
+//Type 4 Radiant Steering (size/availability)
+const turnEfficiency = 38.649
+//Type 4 Radiant Thruster (size/availability. also is the best)
+const thrustEfficiency = 1.0444
+//Dark Storm Shielding (purchaseable)
+const shieldEfficiency = 0.0442
+//Systems Core (Large) (fairly easy to get)
+//const shieldEfficiency = 0.0432
+//Large Repair Module (purchaseable, tolerable size)
+const hullEfficiency = 0.0234
+//Small Nanite Fabricator (Nanite Enhancer) (bigger and better)
+//const hullEfficiency = 0.0259
+//Large Nanite Fabricator (very large - check if available without main quest, might be lategame)
+//const hullEfficiency = 0.0281
+//Steering (Planetary Class) (availability, size)
+const eturnEfficiency = 59.7
+//Subarashii Rift Steering
+//const eturnEfficiency = 65
+//Thruster (Planetary Class) (availability)
+const ethrustEfficiency = 1.7647
 	</script>
 	<script name="keys">
 var allKeys = new Set()
@@ -229,58 +270,185 @@ function showCategories() {
 	}
 }
 
-const getNumber = (outfit, property) => parseFloat(outfit.get(property) || 0)
+const getNumber = (outfit, property) => parseFloat(outfit.get(property) * floatFixingMultiplier || 0)
 
-function showCategory(event) {
-	const categoryName = event.target.textContent
-	const filter = document.getElementById("filter").value
-	const category = categories[categoryName]
-	const properties = new Set()
-
-	const allCooling = (outfit) => getNumber(outfit, "cooling") + getNumber(outfit, "active cooling") + getNumber(outfit, "heat capacity")
+/* "interface": {name, calc, filter} */
+function buildAdditionalProperty(filter) {
+	const baseHeat = (outfit) => getNumber(outfit, "heat generation") - getNumber(outfit, "cooling") - getNumber(outfit, "active cooling") - getNumber(outfit, "heat capacity")/60
 	const baseEnergy = (outfit) => getNumber(outfit, "energy consumption") + getNumber(outfit, "cooling energy")
-	/* "interface": {name, calc, filter} */
-	var additionalProperty = {name: "none", calc: () => {return 0}, filter: () => {return true}}
-	if (filter == "cooling") {
-		additionalProperty = {name: "cooling efficiency", calc: (outfit) => {
-			return allCooling(outfit) / (
-				baseEnergy(outfit) * energyCost
-				- outfit.get("outfit space"))
+	const outfitSpace = (outfit) => -getNumber(outfit, "outfit space")
+
+	switch (filter) {
+	case "cooling":
+		return {name: "cooling efficiency", calc: (outfit) => {
+			return baseHeat(outfit) / coolingEfficiency /
+				(baseEnergy(outfit) * energyCost
+				+ outfitSpace(outfit))
 		}, filter: (outfit) => {
 			return outfit.has("cooling") || outfit.has("active cooling") || outfit.has("heat capacity")
 		}}
-	}
-	if (filter == "energy") {
-		additionalProperty = {name: "energy efficiency", calc: (outfit) => {
-			return getNumber(outfit, "energy generation") / (
-				(getNumber(outfit, "heat generation") - allCooling(outfit)) * coolingCost
-				+ baseEnergy(outfit) * energyCost
-				- outfit.get("outfit space"))
+	case "energy":
+		return {name: "energy efficiency", calc: (outfit) => {
+			return (getNumber(outfit, "energy generation") - baseEnergy(outfit)) / energyEfficiency /
+				(baseHeat(outfit) * coolingCost
+				+ outfitSpace(outfit))
 		}, filter: (outfit) => {
 			return outfit.has("energy generation")
 		}}
-	}
-	if (filter == "thrust") {
-		additionalProperty = {name: "thrust efficiency", calc: (outfit) => {
-			return outfit.get("thrust") / (
-				(baseEnergy(outfit) + getNumber(outfit, "thrusting energy")) * energyCost
-				+ (getNumber(outfit, "heat generation") + getNumber(outfit, "thrusting heat") - allCooling(outfit)) * coolingCost
-				- outfit.get("outfit space"))
+	case "battery":
+		return {name: "battery efficiency", calc: (outfit) => {
+			return getNumber(outfit, "energy capacity") / batteryEfficiency /
+				(baseEnergy(outfit) * energyCost
+				+ baseHeat(outfit) * coolingCost
+				+ outfitSpace(outfit))
+		}, filter: (outfit) => {
+			return outfit.has("energy capacity")
+		}}
+	case "batenergy":
+		return {name: "battery&energy efficiency", calc: (outfit) => {
+			return (getNumber(outfit, "energy capacity") / batteryEfficiency + (getNumber(outfit, "energy generation") - baseEnergy(outfit)) / energyEfficiency) /
+				(baseHeat(outfit) * coolingCost
+				+ outfitSpace(outfit))
+		}, filter: (outfit) => {
+			return outfit.has("energy capacity") || outfit.has("energy generation")
+		}}
+	case "thrust":
+		return {name: "thrust efficiency", calc: (outfit) => {
+			return getNumber(outfit, "thrust") / thrustEfficiency /
+				((baseEnergy(outfit) + getNumber(outfit, "thrusting energy")) * energyCost
+				+ (getNumber(outfit, "thrusting heat") + baseHeat(outfit)) * coolingCost
+				+ outfitSpace(outfit))
 		}, filter: (outfit) => {
 			return outfit.has("thrust")
 		}}
-	}
-	if (filter == "turn") {
-		additionalProperty = {name: "turn efficiency", calc: (outfit) => {
-			return outfit.get("turn") / (
-				(baseEnergy(outfit) + getNumber(outfit, "turning energy")) * energyCost
-				+ (getNumber(outfit, "heat generation") + getNumber(outfit, "turning heat") - allCooling(outfit)) * coolingCost
-				- outfit.get("outfit space"))
+	case "turn":
+		return {name: "turn efficiency", calc: (outfit) => {
+			return getNumber(outfit, "turn") / turnEfficiency /
+				((baseEnergy(outfit) + getNumber(outfit, "turning energy")) * energyCost
+				+ (getNumber(outfit, "turning heat") + baseHeat(outfit)) * coolingCost
+				+ outfitSpace(outfit))
 		}, filter: (outfit) => {
 			return outfit.has("turn")
 		}}
+	case "thrustturn":
+		return {name: "thrust&turn efficiency", calc: (outfit) => {
+			return (getNumber(outfit, "turn") / turnEfficiency + getNumber(outfit, "thrust") / thrustEfficiency) /
+				((baseEnergy(outfit) + getNumber(outfit, "turning energy") + getNumber(outfit, "thrusting energy")) * energyCost
+				+ (getNumber(outfit, "turning heat") + getNumber(outfit, "thrusting heat") + baseHeat(outfit)) * coolingCost
+				+ outfitSpace(outfit))
+		}, filter: (outfit) => {
+			return outfit.has("turn") || outfit.has("thrust")
+		}}
+	case "ethrust":
+		return {name: "thrust engine efficiency", calc: (outfit) => {
+			return getNumber(outfit, "thrust") / ethrustEfficiency /
+				-getNumber(outfit, "engine capacity")
+		}, filter: (outfit) => {
+			return outfit.has("thrust")
+		}}
+	case "eturn":
+		return {name: "turn engine efficiency", calc: (outfit) => {
+			return getNumber(outfit, "turn") / eturnEfficiency /
+				-getNumber(outfit, "engine capacity")
+		}, filter: (outfit) => {
+			return outfit.has("turn")
+		}}
+	case "ethrustturn":
+		return {name: "thrust&turn engine efficiency", calc: (outfit) => {
+			return (getNumber(outfit, "turn") / eturnEfficiency + getNumber(outfit, "thrust") / ethrustEfficiency) /
+				-getNumber(outfit, "engine capacity")
+		}, filter: (outfit) => {
+			return outfit.has("turn") || outfit.has("thrust")
+		}}
+	case "shield":
+		return {name: "shield efficiency", calc: (outfit) => {
+			return getNumber(outfit, "shield generation") / shieldEfficiency /
+				((baseEnergy(outfit) + getNumber(outfit, "shield energy")) * energyCost
+				+ (getNumber(outfit, "shield heat") + baseHeat(outfit)) * coolingCost
+				+ outfitSpace(outfit))
+		}, filter: (outfit) => {
+			return outfit.has("shield generation")
+		}}
+	case "hull":
+		return {name: "hull efficiency", calc: (outfit) => {
+			return getNumber(outfit, "hull repair rate") / hullEfficiency /
+				((baseEnergy(outfit) + getNumber(outfit, "hull energy")) * energyCost
+				+ (getNumber(outfit, "hull heat") + baseHeat(outfit)) * coolingCost
+				+ outfitSpace(outfit))
+		}, filter: (outfit) => {
+			return outfit.has("hull repair rate")
+		}}
+	case "shull":
+		return {name: "shield&hull efficiency", calc: (outfit) => {
+			return (getNumber(outfit, "shield generation") / shieldEfficiency + getNumber(outfit, "hull repair rate") / hullEfficiency) /
+				((baseEnergy(outfit) + getNumber(outfit, "shield energy") + getNumber(outfit, "hull energy")) * energyCost
+				+ (getNumber(outfit, "hull heat") + getNumber(outfit, "shield heat") + baseHeat(outfit)) * coolingCost
+				+ outfitSpace(outfit))
+		}, filter: (outfit) => {
+			return outfit.has("shield generation") || outfit.has("hull repair rate")
+		}}
+	default:
+		return {name: "none", calc: () => {return 0}, filter: () => {return true}}
 	}
+}
 
+function getComboOutfits(categoryName, category, properties) {
+	switch (categoryName) {
+	case "Power":
+		return [
+			...createCombos(category, properties, "reactor upgrades", "Dark Reactor", "Reactor Overclocker", "Reactor Limiter"),
+			...createCombos(category, properties, "reactor upgrades", "Electroweak Reactor", "Reactor Overclocker", "Reactor Limiter"),
+			...createCombos(category, properties, "reactor upgrades", "Quark Reactor", "Reactor Overclocker", "Reactor Limiter")
+		]
+	case "Systems":
+		return [
+			...createCombos(category, properties, "relay upgrades", "Large Shield Relay", "Shield Relay Booster", "Shield Relay Limiter"),
+			...createCombos(category, properties, "relay upgrades", "Small Shield Relay", "Shield Relay Booster", "Shield Relay Limiter"),
+			...createCombos(category, properties, "nanite upgrades", "Large Nanite Fabricator", "Nanite Enhancer", "Nanite Limiter"),
+			...createCombos(category, properties, "nanite upgrades", "Small Nanite Fabricator", "Nanite Enhancer", "Nanite Limiter")
+		]
+	default:
+		return []
+	}
+}
+
+function createCombos(category, properties, modifierKey, baseName, overclockerName, limiterName) {
+	const limiter = category.find(x => x.get("outfit") == limiterName)
+	const overclocker = category.find(x => x.get("outfit") == overclockerName)
+	const base = category.find(x => x.get("outfit") == baseName)
+
+	const modifierSpace = getNumber(base, modifierKey)
+	const limitMulti = Math.floor(modifierSpace / -getNumber(limiter, modifierKey))
+	const overclockMulti = Math.floor(modifierSpace / -getNumber(overclocker, modifierKey))
+
+	const limitedEdition = structuredClone(base)
+	const overclockedEdition = structuredClone(base)
+
+	properties.forEach(key => {
+		const baseVal = getNumber(limitedEdition, key)
+		const limiterVal = getNumber(limiter, key)
+		const overclockerVal = getNumber(overclocker, key)
+
+		if (baseVal != 0 && !isNaN(baseVal) || limiterVal != 0 && !isNaN(limiterVal)) {
+			limitedEdition.set(key, (baseVal + limiterVal * limitMulti) / floatFixingMultiplier)
+		}
+
+		if (baseVal != 0 && !isNaN(baseVal) || overclockerVal != 0 && !isNaN(overclockerVal)) {
+			overclockedEdition.set(key, (baseVal + overclockerVal * overclockMulti) / floatFixingMultiplier)
+		}
+	})
+	limitedEdition.set("outfit", baseName + " (" + limiterName + ")")
+	overclockedEdition.set("outfit", baseName + " (" + overclockerName + ")")
+
+	return [limitedEdition, overclockedEdition]
+}
+
+function showCategory(event) {
+	const categoryName = event.target.textContent
+	const category = categories[categoryName]
+	const properties = new Set()
+
+	const additionalProperty = buildAdditionalProperty(document.getElementById("filter").value)
 	const filteredCategory = category.filter(additionalProperty.filter)
 
 	filteredCategory.forEach(outfit => {
@@ -289,30 +457,7 @@ function showCategory(event) {
 		})
 	})
 
-	if (categoryName == "Power") {
-		const limiter = category.find(x=>x.get("outfit")=="Reactor Limiter")
-		const overclocker = category.find(x=>x.get("outfit")=="Reactor Overclocker")
-		const dr2 = structuredClone(category.find(x=>x.get("outfit")=="Dark Reactor"))
-		const dr3 = structuredClone(dr2)
-
-		properties.forEach(key => {
-			const drVal = getNumber(dr2, key)
-			const limiterVal = getNumber(limiter, key)
-			const overclockerVal = getNumber(overclocker, key)
-
-			if (drVal != 0 || limiterVal != 0) {
-				dr2.set(key, parseFloat(drVal) + parseFloat(limiterVal) * 15)
-			}
-
-			if (drVal != 0 || overclockerVal != 0) {
-				dr3.set(key, parseFloat(drVal) + parseFloat(overclockerVal) * 10)
-			}
-		})
-		dr2.set("outfit", "Dark Reactor (limited edition)")
-		dr3.set("outfit", "Dark Reactor (turbo edition)")
-		filteredCategory.push(dr2)
-		filteredCategory.push(dr3)
-	}
+	filteredCategory.push(...(getComboOutfits(categoryName, category, properties).filter(additionalProperty.filter)))
 
 	const template = document.getElementById("category-template").content.children[0]
 	const categoryElement = document.importNode(template, true)
@@ -343,7 +488,8 @@ function showCategory(event) {
 		}
 		properties.forEach(property => {
 			const bodyCell = document.createElement("td")
-			bodyCell.textContent = outfit.get(property)
+			const value = outfit.get(property)
+			bodyCell.textContent = (property == "cost") ? (value / 1000) : value
 			tableRow.appendChild(bodyCell)
 		})
 	})
@@ -367,6 +513,7 @@ async function openFiles(event) {
 	for (var i = 0; i < files.length; ++i) {
 		var file = files[i]
 		var readFile = await file.text()
+		//eventually should probably build in proper node form (OOP), only flat map for now
 		var cleanedFile = cleanFile(readFile)
 		var blobs = getBlobs(cleanedFile)
 		var parsedOutfits = blobs.map(blob => parseBlob(blob))
@@ -376,12 +523,12 @@ async function openFiles(event) {
 	}
 	var reducedOutfits = outfits.map(outfit => reduceData(outfit))
 	categories = Object.groupBy(reducedOutfits, outfit => outfit.get("category"))
-	//show categories
 	showCategories()
 }
 
 function cleanFile(file) {
 	var cleaned = file.replaceAll(/#.*\n/g,"")
+		//this removes all sub-nodes
 		.replaceAll(/\t\t+.*\n/g,"")
 		.replace(/\n*/,"")
 	return cleaned
@@ -447,10 +594,19 @@ function reduceData(outfit) {
 <input type='file' accept='text/plain' onchange='openFiles(event)' multiple>
 <select id="filter">
 	<option value="none">Select Filter</option>
+	<option value="cooling">cooling (all)</option>
 	<option value="thrust">thrust</option>
 	<option value="turn">turn</option>
-	<option value="cooling">cooling</option>
-	<option value="energy">energy</option>
+	<option value="thrustturn">thrust&amp;turn</option>
+	<option value="ethrust">thrust (engine space)</option>
+	<option value="eturn">turn (engine space)</option>
+	<option value="ethrustturn">thrust&amp;turn (engine space)</option>
+	<option value="energy">energy generation</option>
+	<option value="battery">energy capacity</option>
+	<option value="batenergy">energy generation&amp;capacity</option>
+	<option value="shield">shield generation</option>
+	<option value="hull">hull repair rate</option>
+	<option value="shull">shield&amp;hull</option>
 </select >
 
 <div id="categoryButtons"></div>
