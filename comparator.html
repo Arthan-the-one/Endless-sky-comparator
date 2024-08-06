@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 	<title>Endless Sky Comparator</title>
 	<style>
@@ -416,6 +416,9 @@ function createCombos(category, properties, modifierKey, baseName, overclockerNa
 	const limiter = category.find(x => x.get("outfit") == limiterName)
 	const overclocker = category.find(x => x.get("outfit") == overclockerName)
 	const base = category.find(x => x.get("outfit") == baseName)
+	if (!base) { // not a combo item
+		return []
+	}
 
 	const modifierSpace = getNumber(base, modifierKey)
 	const limitMulti = Math.floor(modifierSpace / -getNumber(limiter, modifierKey))
@@ -613,4 +616,4 @@ function reduceData(outfit) {
 
 <div id="categoryContent"></div>
 </body>
-
+</html>
